@@ -1,0 +1,172 @@
+#
+# gdb-check
+#
+# File is automatically generated. 
+# Do not edit.
+# Creation date: {{ date }}.
+#
+
+set confirm off
+set pagination off
+
+python
+import gdb
+import json
+import sys
+import os
+import jinja2
+
+
+# Python command to suppress gdb errors
+class GdbSilentCommand(gdb.Command):
+    def __init__(self):
+        name = 'gdb-silent-command'
+        cmd_type = gdb.COMMAND_OBSCURE
+        completion = gdb.COMPLETE_COMMAND
+
+        super(GdbSilentCommand, self).__init__(name, cmd_type, completion)
+
+    def invoke(self, arg, from_tty):
+        try:
+            gdb.execute(arg, from_tty)
+        except gdb.error as err:
+            pass
+
+class GdbTestManager():
+    instance = None
+
+    def __init__(self):
+        self.results = []
+        self.test = None
+  
+    def set_test(self, test):
+        if self.test != None:
+            info = {
+                'test' : self.test,
+                'result' : True,
+            }
+
+            self.results.append(info)
+
+        self.test = test
+
+    def test_failed(self, what, condition):
+        var = condition.split('==')[0].strip()
+
+        if var == '$':
+            val = gdb.history(0)
+        elif var.startswith('$'):
+            index = int(var[:1])
+            val = gdb.history(index)
+        else:
+            symbol, _ = gdb.lookup_symbol(var)
+            val = symbol.value()
+
+        info = {
+            'test' : self.test,
+            'result' : False,
+            'what' : what,
+            'condition' : condition,
+            'var' : var,
+            'value' : val,
+        }
+
+        self.results.append(info)
+        self.test = None
+
+    def report(self, out=sys.stdout):
+        context = {
+            'results' : self.results,
+        }
+
+        template = jinja2.Template({{ html_template_report|tojson }})
+        html = template.render(context)
+
+        print(html)
+
+        if isinstance(out, str) and os.path.isfile(out):
+            out = open(out, 'w') 
+
+        for x in self.results:
+            name = x['test']['name']
+
+            if x['result']:
+                print('Test "{}": PASSED'.format(name))
+            else:
+                text = [
+                    'Test "{}": FAILED'.format(name),
+                    '** {} "{}" is violated'.format(x['what'], x['condition']),
+                    '** Observed: {} = {}'.format(x['var'], x['value']),
+                ]
+
+                print('\n'.join(text), file=out)
+    
+    @staticmethod
+    def get():
+        if GdbTestManager.instance == None:
+            GdbTestManager.instance = GdbTestManager()
+
+        return GdbTestManager.instance
+        
+def main():
+    GdbSilentCommand()
+
+if __name__ == '__main__':
+    main()
+end
+
+set logging redirect {{ logging_redirect_on }}
+set logging {{ logging_on }}
+file {{ binary }}
+start
+
+{%- for test in tests %}
+{%- if test.enable %}
+# BEGIN "{{ test.name }}"
+# BEGIN TEST STUBS "{{ test.name }}"
+python GdbTestManager.get().set_test({{ test }})
+{%- for stub in test.stubs %}
+break {{ stub.function }}
+commands
+silent
+return {{ stub.return }}
+{%- for expr in stub.postactions %}
+set variable {{ expr }}
+{%- endfor %}
+continue
+end
+# END TEST STUBS "{{ test.name }}"
+tbreak {{ test.function }}
+# PRECONDITIONS "{{ test.name }}"
+{%- for cond in test.preconditions %}
+if !({{ cond }})
+python GdbTestManager.get().test_failed('Precondition', '{{ cond }}')
+end
+{%- endfor %}
+gdb-silent-command call {{ test.function }}({{test.arguments}})
+{%- for expr in test.stimulation %}
+set variable {{ expr }}
+{%- endfor %}
+finish
+# EXPECTATIONS "{{ test.name }}"
+{%- for expect in test.expectation %}
+if !({{ expect }})
+python GdbTestManager.get().test_failed('Expectation', '{{ expect }}')
+end
+{%- endfor %}
+# POSTCONDITIONS "{{ test.name }}"
+{%- for cond in test.postconditions %}
+if !({{ cond }})
+python GdbTestMangager.get().test_failed('Postcondition', '{{ cond }}')
+end
+{%- endfor %}
+delete breakpoints
+{%- endfor %}
+# END TEST_STUBS "{{ test.name }}"
+# END "{{ test.name }}"
+{%- else %}
+# DISABLED "{{ test.name }}"
+{%- endif %}
+{%- endfor %}
+python GdbTestManager.get().report({{ report }})
+quit

@@ -1,0 +1,81 @@
+[
+    {
+        "name": "popcnt-1",
+        "description": "Test description.",
+        "comment": "",
+        "tags": [
+            "popcnt"
+        ],
+        "enable": true,
+        "cpu": "any",
+        "process": "any",
+        "thread": "any",
+        "function": "popcnt",
+        "arguments": [ "8" ],
+        "stubs": [
+            {
+                "function": "",
+                "return": "",
+                "postactions": []
+            }
+        ],
+        "initialization" : [
+            "#restart"
+        ],
+        "preconditions": [
+            "data_10ms.ready == 0",
+            "data_10ms.num == 0",
+            "data_100ms.ready == 0",
+            "data_100ms.num == 0"
+        ],
+        "stimulation": [],
+        "expectation": [
+            "$ == 2"
+        ],
+        "postconditions": [
+            "data_10ms.ready == 0",
+            "data_10ms.num == 0",
+            "data_100ms.ready == 0",
+            "data_100ms.num == 0"
+        ],
+        "finalization": []
+    },
+    {
+        "name": "task_10ms-1",
+        "description": "Test description.",
+        "comment": "",
+        "tags": [
+            "task_10ms"
+        ],
+        "enable": true,
+        "cpu": "any",
+        "process": "any",
+        "thread": "any",
+        "function": "task_10ms",
+        "arguments": "",
+        "stubs": [
+            {
+                "function": "popcnt",
+                "return": "32",
+                "postactions": []
+            }
+        ],
+        "initialization" : [
+            "#restart"
+        ],
+        "preconditions": [
+            "data_10ms.ready == 0",
+            "data_10ms.num == 0"
+        ],
+        "stimulation": [
+            "data_10ms = { 1, 0 }"
+        ],
+        "expectation": [
+            "data_10ms.ready == 0"
+        ],
+        "postconditions": [
+            "data_10ms.num == 0"
+        ],
+        "finalization": []
+    }
+]

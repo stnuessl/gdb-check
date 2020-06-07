@@ -1,0 +1,43 @@
+[
+    {
+        "name": "popcnt-2",
+        "description": "Test description.",
+        "comment": "",
+        "tags": [
+            "popcnt"
+        ],
+        "enable": true,
+        "cpu": "any",
+        "process": "any",
+        "thread": "any",
+        "function": "popcnt",
+        "arguments": "7",
+        "stubs": [
+            {
+                "function": "",
+                "return": "",
+                "postactions": []
+            }
+        ],
+        "initialization" : [
+            "#restart"
+        ],
+        "preconditions": [
+            "data_10ms.ready == 0",
+            "data_10ms.num == 0",
+            "data_100ms.ready == 0",
+            "data_100ms.num == 0"
+        ],
+        "stimulation": [],
+        "expectation": [
+            "$ == 3"
+        ],
+        "postconditions": [
+            "data_10ms.ready == 0",
+            "data_10ms.num == 0",
+            "data_100ms.ready == 0",
+            "data_100ms.num == 0"
+        ],
+        "finalization": []
+    }
+]
