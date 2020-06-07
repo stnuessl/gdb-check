@@ -16,6 +16,65 @@ import sys
 import os
 import jinja2
 
+{% raw %}
+HTML_TEMPLATE_REPORT = (
+    '<h1>Test Summary</h1>'
+    '<table>'
+        '<thead>'
+            '<tr>'
+                '<th>Test</th>'
+                '<th>Result</th>'
+            '</tr>'
+        '</thead>'
+        '<tbody>'
+            '{%- for item in tests %}'
+            '<tr>'
+                '<td>{{ item.name }}</td>'
+                '<td>{{ item.id }}</td>'
+                '{%- if item.result %}'
+                '<td>PASS</td>'
+                '{%- else %}'
+                '<td>FAIL</td>'
+                '{%- endif %}'
+            '</tr>'
+            '{%- endfor %}'
+        '</tbody>'
+    '</table>'
+    '<h1> Detailed Test Summary Report</h1>'
+    '{%- for item in tests %}'
+    '<h2>{{ item.name }}: {{ item.id }}</h2>'
+    'Description: {{ item.description }}'
+    'Tags: {{ item.tags }}'
+    '<h3>Preconditions</h3>'
+    '<table>'
+        '<thead>'
+            '<tr>'
+                '<th>Preconditions</th>'
+                '<th>Entity</th>'
+                '<th>Expected Value</th>'
+                '<th>Actual Value</th>'
+                '<th>Result</th>'
+            '</tr>'
+        '</thead>'
+        '<tbody>'
+            '{%- for data in item.preconditions %}'
+            '<tr>'
+              '<td>{{ data.expr }}</td>'
+                '<td>{{ data.entity }}</td>'
+                '<td>{{ data.expected }}</td>'
+                '<td>{{ data.actual }}</td>'
+                '{%- if data.expected == data.actual %}'
+                '<td>PASS</td>'
+                '{%- else %}'
+                '<td>FAIL</td>'
+                '{%- endif %}'
+            '</tr>'
+            '{%- endfor %}'
+        '</tbody>'
+    '</table>'
+    '{%- endfor %}'
+)
+{% endraw %}
 
 # Python command to suppress gdb errors
 class GdbSilentCommand(gdb.Command):
@@ -32,23 +91,36 @@ class GdbSilentCommand(gdb.Command):
         except gdb.error as err:
             pass
 
-class GdbTestManager():
+class TestManager():
     instance = None
 
     def __init__(self):
-        self.results = []
+        self.tests = []
         self.test = None
   
     def set_test(self, test):
-        if self.test != None:
-            info = {
-                'test' : self.test,
-                'result' : True,
-            }
+        self.tests.append(test)
 
-            self.results.append(info)
+    def check_failed(self, what, expr):
+        for item in self.tests[-1][what]:
 
-        self.test = test
+            # Deliberately do not break out of the loops, as
+            # the user could have specified the same condition 
+            # multiple times.
+            if item['expr'] == expr:
+                entity = item['entity']
+
+                if entity == '$':
+                    val = gdb.history(0)
+                elif entity.startswith('$'):
+                    index = int(entity[:1])
+                    val = gdb.history(index)
+                else:
+                    symbol, _ = gdb.lookup_symbol(var)
+                    val = symbol.value()
+
+                item['actual'] = str(val)
+                self.tests[-1]['result'] = False
 
     def test_failed(self, what, condition):
         var = condition.split('==')[0].strip()
@@ -76,10 +148,10 @@ class GdbTestManager():
 
     def report(self, out=sys.stdout):
         context = {
-            'results' : self.results,
+            'tests' : self.tests,
         }
 
-        template = jinja2.Template({{ html_template_report|tojson }})
+        template = jinja2.Template(HTML_TEMPLATE_REPORT)
         html = template.render(context)
 
         print(html)
@@ -87,26 +159,26 @@ class GdbTestManager():
         if isinstance(out, str) and os.path.isfile(out):
             out = open(out, 'w') 
 
-        for x in self.results:
-            name = x['test']['name']
-
-            if x['result']:
-                print('Test "{}": PASSED'.format(name))
-            else:
-                text = [
-                    'Test "{}": FAILED'.format(name),
-                    '** {} "{}" is violated'.format(x['what'], x['condition']),
-                    '** Observed: {} = {}'.format(x['var'], x['value']),
-                ]
-
-                print('\n'.join(text), file=out)
+#        for x in self.results:
+#            name = x['test']['name']
+#
+#            if x['result']:
+#                print('Test "{}": PASSED'.format(name))
+#            else:
+#                text = [
+#                    'Test "{}": FAILED'.format(name),
+#                    '** {} "{}" is violated'.format(x['what'], x['condition']),
+#                    '** Observed: {} = {}'.format(x['var'], x['value']),
+#                ]
+#
+#                print('\n'.join(text), file=out)
     
     @staticmethod
     def get():
-        if GdbTestManager.instance == None:
-            GdbTestManager.instance = GdbTestManager()
+        if TestManager.instance == None:
+            TestManager.instance = TestManager()
 
-        return GdbTestManager.instance
+        return TestManager.instance
         
 def main():
     GdbSilentCommand()
@@ -124,7 +196,7 @@ start
 {%- if test.enable %}
 # BEGIN "{{ test.name }}"
 # BEGIN TEST STUBS "{{ test.name }}"
-python GdbTestManager.get().set_test({{ test }})
+python TestManager.get().set_test({{ test }})
 {%- for stub in test.stubs %}
 break {{ stub.function }}
 commands
@@ -138,9 +210,9 @@ end
 # END TEST STUBS "{{ test.name }}"
 tbreak {{ test.function }}
 # PRECONDITIONS "{{ test.name }}"
-{%- for cond in test.preconditions %}
-if !({{ cond }})
-python GdbTestManager.get().test_failed('Precondition', '{{ cond }}')
+{%- for item in test.preconditions %}
+if !({{ item.expr }})
+python TestManager.get().check_failed('preconditions', '{{ item.expr }}')
 end
 {%- endfor %}
 gdb-silent-command call {{ test.function }}({{test.arguments}})
@@ -149,15 +221,15 @@ set variable {{ expr }}
 {%- endfor %}
 finish
 # EXPECTATIONS "{{ test.name }}"
-{%- for expect in test.expectation %}
-if !({{ expect }})
-python GdbTestManager.get().test_failed('Expectation', '{{ expect }}')
+{%- for item in test.expectation %}
+if !({{ item.expr }})
+python TestManager.get().check_failed('expectation', '{{ item.expr }}')
 end
 {%- endfor %}
 # POSTCONDITIONS "{{ test.name }}"
-{%- for cond in test.postconditions %}
-if !({{ cond }})
-python GdbTestMangager.get().test_failed('Postcondition', '{{ cond }}')
+{%- for item in test.postconditions %}
+if !({{ item.expr }})
+python TestManager.get().check_failed('postconditions', '{{ item.expr }}')
 end
 {%- endfor %}
 delete breakpoints
@@ -168,5 +240,5 @@ delete breakpoints
 # DISABLED "{{ test.name }}"
 {%- endif %}
 {%- endfor %}
-python GdbTestManager.get().report({{ report }})
+python TestManager.get().report({{ report }})
 quit

@@ -31,30 +31,6 @@ import glob
 import jinja2
 import datetime
 
-HTML_TEMPLATE_REPORT = (
-    '<table>\n'
-    '   <thead>\n'
-    '       <tr>\n'
-    '           <th>Test</th>\n'
-    '           <th>Result</th>\n'
-    '       </tr>\n'
-    '   </thead>\n'
-    '   <tbody>\n'
-    '   {%- for result in results %}\n'
-    '       <tr>\n'
-    '           <td>{{ result.test.name }}</td>\n'
-    '           {%- if result.result %}\n'
-    '           <td>PASS</td>\n'
-    '           {%- else %}\n'
-    '           <td>FAIL</td>\n'
-    '           {%- endif %}\n'
-    '       </tr>\n'
-    '   {%- endfor %}\n'
-    '   </tbody>\n'
-    '</table>\n'
-)
-
-
 class GdbCheckConfig():
     CONFIG_NAME = 'gdb-check'
 
@@ -136,6 +112,11 @@ class GdbCheckConfig():
 
             [test.setdefault(*x) for x in pairs]
 
+            test['result'] = True
+
+            if isinstance(test['tags'], list):
+                test['tags'] = ', '.join(test['tags'])
+
             #
             # Sanitize all list elements:
             # The user is able the comment out single elements
@@ -149,6 +130,23 @@ class GdbCheckConfig():
             if isinstance(test['arguments'], list):
                 test['arguments'] = ', '.join((str(x) for x in test['arguments']))
 
+            for x in ['preconditions', 'expectation', 'postconditions']:
+                new = []
+                
+                for item in test[x]:
+                    var, val = (s.strip() for s in item.split('=='))
+                
+                    data = {
+                        'expr' : item,
+                        'entity' : var, 
+                        'expected' : val, 
+                        'actual' : val,
+                    }
+
+                    new.append(data)
+
+                test[x] = new
+                
 
 #            for x in test['stubs']:
 #                x['return'] = x.get('return', '')
@@ -170,7 +168,6 @@ class GdbCheck():
             'logging_on' : 'off',
             'binary' : self.config.get_program(),
             'tests' : self.config.get_test_cases(),
-            'html_template_report' : HTML_TEMPLATE_REPORT,
         }
         template = jinja2.Template(open('template/gdb.jinja', 'r').read())
         script = template.render(context)
